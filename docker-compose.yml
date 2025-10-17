@@ -1,0 +1,32 @@
+# Docker Compose configuration for local development
+# Optional: Use if you prefer Docker over local PostgreSQL installation
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: interest_rates_db
+    environment:
+      POSTGRES_DB: interest_rates_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+# Usage:
+# 1. Start: docker-compose up -d
+# 2. Stop: docker-compose down
+# 3. View logs: docker-compose logs -f
+# 4. Remove data: docker-compose down -v
+
