@@ -256,6 +256,97 @@ class FREDCollector:
             session.close()
             raise
     
+    def collect_sofr_rates(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> int:
+        """Collect SOFR term averages from FRED.
+        
+        Args:
+            start_date: Start date for backfill.
+            end_date: End date for collection.
+            
+        Returns:
+            Number of records collected.
+        """
+        start_time = datetime.utcnow()
+        records_collected = 0
+        
+        try:
+            sofr_series = self.config.get('fred_series.sofr_rates', {})
+            
+            if not sofr_series:
+                logger.warning("No SOFR series configured")
+                return 0
+            
+            session = self.db_manager.get_session()
+            
+            for series_id, maturity_name in sofr_series.items():
+                try:
+                    logger.info(f"Fetching {series_id} ({maturity_name})")
+                    data = self._fetch_series_with_retry(series_id, start_date, end_date)
+                    
+                    # Use maturity_name directly (e.g., "30-Day" -> "30D")
+                    maturity = maturity_name.replace('-Day', 'D')
+                    
+                    for dt, rate in data.items():
+                        if rate is not None and not pd.isna(rate):
+                            try:
+                                record = TreasuryRate(
+                                    date=dt.date(),
+                                    maturity=maturity,
+                                    rate=float(rate),
+                                    source='FRED_SOFR'
+                                )
+                                session.add(record)
+                                records_collected += 1
+                            except IntegrityError:
+                                # Record already exists
+                                session.rollback()
+                    
+                    session.commit()
+                    logger.info(f"Collected {len(data)} records for {series_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to collect {series_id}: {e}")
+                    session.rollback()
+            
+            # Log successful collection
+            log_entry = DataCollectionLog(
+                collection_date=datetime.utcnow(),
+                source='FRED',
+                data_type='sofr_rates',
+                status='SUCCESS',
+                records_collected=records_collected,
+                start_time=start_time,
+                end_time=datetime.utcnow()
+            )
+            session.add(log_entry)
+            session.commit()
+            session.close()
+            
+            logger.info(f"SOFR rates collection complete: {records_collected} records")
+            return records_collected
+            
+        except Exception as e:
+            logger.error(f"SOFR rates collection failed: {e}")
+            session = self.db_manager.get_session()
+            log_entry = DataCollectionLog(
+                collection_date=datetime.utcnow(),
+                source='FRED',
+                data_type='sofr_rates',
+                status='FAILED',
+                records_collected=records_collected,
+                start_time=start_time,
+                end_time=datetime.utcnow(),
+                error_message=str(e)
+            )
+            session.add(log_entry)
+            session.commit()
+            session.close()
+            raise
+    
     def collect_economic_indicators(
         self,
         start_date: Optional[date] = None,
@@ -367,6 +458,7 @@ class FREDCollector:
         results = {}
         results['treasury_rates'] = self.collect_treasury_rates(start_date=start_date)
         results['policy_rates'] = self.collect_policy_rates(start_date=start_date)
+        results['sofr_rates'] = self.collect_sofr_rates(start_date=start_date)
         results['economic_indicators'] = self.collect_economic_indicators(start_date=start_date)
         
         total = sum(results.values())

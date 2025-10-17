@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from loguru import logger
 from src.collectors import FREDCollector, TreasuryCollector, CFTCCollector
+from src.collectors.futures_price_collector import FuturesPriceCollector
+from src.collectors.sofr_futures_collector import SOFRFuturesCollector
 from src.utils.config import get_config
 
 
@@ -68,7 +70,7 @@ def collect_all_data(incremental=False, backfill_years=None):
             logger.warning("Continuing with other sources...")
     
     # CFTC Collection
-    logger.info("\n[3/3] Collecting from CFTC...")
+    logger.info("\n[3/5] Collecting from CFTC...")
     try:
         cftc_collector = CFTCCollector()
         cftc_results = cftc_collector.collect_all(backfill_years=backfill_years)
@@ -78,6 +80,26 @@ def collect_all_data(incremental=False, backfill_years=None):
         total_records += sum(cftc_results.values())
     except Exception as e:
         logger.error(f"CFTC collection failed: {e}")
+    
+    # Futures Prices Collection
+    logger.info("\n[4/5] Collecting Treasury Futures Prices...")
+    try:
+        futures_collector = FuturesPriceCollector()
+        futures_count = futures_collector.collect_all()
+        logger.success(f"Futures prices collection complete: {futures_count} records")
+        total_records += futures_count
+    except Exception as e:
+        logger.error(f"Futures prices collection failed: {e}")
+    
+    # SOFR Futures Collection
+    logger.info("\n[5/5] Collecting SOFR Futures...")
+    try:
+        sofr_futures_collector = SOFRFuturesCollector()
+        sofr_futures_count = sofr_futures_collector.collect_all()
+        logger.success(f"SOFR futures collection complete: {sofr_futures_count} records")
+        total_records += sofr_futures_count
+    except Exception as e:
+        logger.error(f"SOFR futures collection failed: {e}")
     
     # Summary
     logger.info("\n" + "="*60)
