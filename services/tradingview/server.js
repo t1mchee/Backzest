@@ -306,6 +306,19 @@ if (process.env.ENABLE_AUTO_COLLECTION === 'true') {
     { symbol: 'CBOT:ZB1!', name: '30Y T-Bond Futures' },
     { symbol: 'CBOT:ZT1!', name: '2Y T-Note Futures' },
     { symbol: 'CBOT:ZF1!', name: '5Y T-Note Futures' },
+    // SOFR Futures for forward curve (next 12 quarterly contracts)
+    { symbol: 'CME:SR3Z2024', name: 'SOFR Dec 2024' },
+    { symbol: 'CME:SR3H2025', name: 'SOFR Mar 2025' },
+    { symbol: 'CME:SR3M2025', name: 'SOFR Jun 2025' },
+    { symbol: 'CME:SR3U2025', name: 'SOFR Sep 2025' },
+    { symbol: 'CME:SR3Z2025', name: 'SOFR Dec 2025' },
+    { symbol: 'CME:SR3H2026', name: 'SOFR Mar 2026' },
+    { symbol: 'CME:SR3M2026', name: 'SOFR Jun 2026' },
+    { symbol: 'CME:SR3U2026', name: 'SOFR Sep 2026' },
+    { symbol: 'CME:SR3Z2026', name: 'SOFR Dec 2026' },
+    { symbol: 'CME:SR3H2027', name: 'SOFR Mar 2027' },
+    { symbol: 'CME:SR3M2027', name: 'SOFR Jun 2027' },
+    { symbol: 'CME:SR3U2027', name: 'SOFR Sep 2027' },
   ];
 
   setTimeout(() => {

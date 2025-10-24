@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, TrendingUp, GitBranch, DollarSign, BarChart3, Table, Activity, LineChart, Radio, Box } from 'lucide-react';
+import { Home, TrendingUp, GitBranch, DollarSign, BarChart3, Table, Activity, LineChart, Radio, Box, Zap } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
@@ -17,6 +17,7 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/live-futures', icon: Radio, label: 'Live Futures' },
     { path: '/forward-curve', icon: Activity, label: 'Forward Curves' },
     { path: '/sofr-forwards', icon: LineChart, label: 'SOFR Forwards' },
+    { path: '/sofr-futures-curve', icon: Zap, label: 'SOFR Futures Curve' },
     { path: '/data-tables', icon: Table, label: 'Data Tables' },
   ];
 

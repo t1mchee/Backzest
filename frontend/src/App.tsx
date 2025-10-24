@@ -7,6 +7,7 @@ import FedRatesPage from './pages/FedRatesPage';
 import FuturesPage from './pages/FuturesPage';
 import ForwardCurvePage from './pages/ForwardCurvePage';
 import SOFRForwardRatesPage from './pages/SOFRForwardRatesPage';
+import SOFRFuturesForwardCurve from './pages/SOFRFuturesForwardCurve';
 import DataTablesPage from './pages/DataTablesPage';
 import LiveFuturesPage from './pages/LiveFuturesPage';
 import YieldSurface3D from './pages/YieldSurface3D';
@@ -26,6 +27,7 @@ function App() {
           <Route path="/live-futures" element={<LiveFuturesPage />} />
           <Route path="/forward-curve" element={<ForwardCurvePage />} />
           <Route path="/sofr-forwards" element={<SOFRForwardRatesPage />} />
+          <Route path="/sofr-futures-curve" element={<SOFRFuturesForwardCurve />} />
           <Route path="/data-tables" element={<DataTablesPage />} />
         </Routes>
       </Layout>

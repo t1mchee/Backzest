@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import pandas as pd
 import sys
 from pathlib import Path
+from sqlalchemy import text
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -887,8 +888,14 @@ async def get_all_latest_prices():
         if 'timestamp' in df.columns:
             df['timestamp'] = df['timestamp'].astype(str)
         
+        # Convert numeric columns to float, replacing NaN/inf with None
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
         # Replace NaN and inf values with None for JSON serialization
-        df = df.replace([float('inf'), float('-inf')], None)
+        df = df.replace([float('inf'), float('-inf'), float('nan')], None)
         df = df.where(pd.notna(df), None)
         
         return {
@@ -1095,6 +1102,155 @@ async def get_tradingview_yield_surface(
             "maturity_labels": ['3M', '6M', '1Y', '2Y', '5Y', '10Y', '30Y'],
             "z_values": z_values,
             "count": len(dates)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sofr/futures-forward-curve")
+async def get_sofr_futures_forward_curve():
+    """
+    Calculate SOFR forward curve from latest SOFR futures prices.
+    SOFR futures price = 100 - implied 3-month SOFR rate
+    """
+    try:
+        query = text("""
+            SELECT 
+                symbol,
+                price,
+                timestamp
+            FROM v_tradingview_latest_prices
+            WHERE symbol LIKE 'CME:SR3%' 
+                AND symbol NOT LIKE '%!'
+            ORDER BY symbol
+        """)
+        
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn)
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No SOFR futures data available")
+        
+        # Calculate implied SOFR rates from futures prices
+        # Futures price = 100 - implied rate
+        df['implied_rate'] = 100 - df['price']
+        
+        # Extract contract dates from symbols (e.g., CME:SR3H2025 -> Mar 2025)
+        month_map = {'H': 'Mar', 'M': 'Jun', 'U': 'Sep', 'Z': 'Dec'}
+        df['month_code'] = df['symbol'].str[-5]  # Get the month code (5th from end)
+        df['year'] = df['symbol'].str[-4:]  # Get the year (last 4 characters)
+        df['contract_month'] = df['month_code'].map(month_map) + ' ' + df['year']
+        
+        # Convert to months from now for plotting
+        from datetime import datetime
+        current_date = datetime.now()
+        
+        # Map month codes to month numbers
+        month_code_to_num = {'H': 3, 'M': 6, 'U': 9, 'Z': 12}
+        
+        def calc_months_forward(row):
+            try:
+                month_num = month_code_to_num[row['month_code']]
+                year = int(row['year'])
+                contract_date = datetime(year, month_num, 1)
+                months = (contract_date.year - current_date.year) * 12 + (contract_date.month - current_date.month)
+                return months / 12  # Convert to years
+            except (KeyError, ValueError) as e:
+                return None
+        
+        df['years_forward'] = df.apply(calc_months_forward, axis=1)
+        
+        # Filter out any rows where we couldn't calculate years_forward
+        df = df[df['years_forward'].notna()]
+        
+        # Sort by time forward
+        df = df.sort_values('years_forward')
+        
+        # Filter out expired contracts
+        df = df[df['years_forward'] >= 0]
+        
+        return {
+            "curve_date": current_date.isoformat(),
+            "data": df[['symbol', 'contract_month', 'years_forward', 'price', 'implied_rate']].to_dict('records'),
+            "count": len(df)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sofr/futures-forward-curve/historical")
+async def get_sofr_futures_forward_curve_historical(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    days: int = 30
+):
+    """
+    Get historical SOFR forward curves for backtesting and analysis.
+    Returns daily snapshots of the forward curve.
+    """
+    try:
+        if not end_date:
+            end_date = date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=days)
+        
+        query = text("""
+            WITH daily_prices AS (
+                SELECT 
+                    DATE(timestamp) as curve_date,
+                    symbol,
+                    price,
+                    ROW_NUMBER() OVER (PARTITION BY DATE(timestamp), symbol ORDER BY timestamp DESC) as rn
+                FROM tradingview_prices
+                WHERE symbol LIKE 'CME:SR3%'
+                    AND symbol NOT LIKE '%!'
+                    AND DATE(timestamp) >= :start_date
+                    AND DATE(timestamp) <= :end_date
+            )
+            SELECT 
+                curve_date,
+                symbol,
+                price
+            FROM daily_prices
+            WHERE rn = 1
+            ORDER BY curve_date, symbol
+        """)
+        
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'start_date': start_date, 'end_date': end_date})
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No historical SOFR futures data available")
+        
+        # Calculate implied rates
+        df['implied_rate'] = 100 - df['price']
+        
+        # Extract contract info
+        month_map = {'H': 'Mar', 'M': 'Jun', 'U': 'Sep', 'Z': 'Dec'}
+        df['month_code'] = df['symbol'].str[-5]  # Get the month code (5th from end)
+        df['year'] = df['symbol'].str[-4:]  # Get the year (last 4 characters)
+        df['contract_month'] = df['month_code'].map(month_map) + ' ' + df['year']
+        
+        # Convert curve_date to string for JSON
+        df['curve_date'] = df['curve_date'].astype(str)
+        
+        # Group by date
+        curves_by_date = []
+        for curve_date, group in df.groupby('curve_date'):
+            curves_by_date.append({
+                'date': curve_date,
+                'contracts': group[['symbol', 'contract_month', 'price', 'implied_rate']].to_dict('records')
+            })
+        
+        return {
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "curves": curves_by_date,
+            "count": len(curves_by_date)
         }
     except HTTPException:
         raise
