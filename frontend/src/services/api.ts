@@ -114,6 +114,29 @@ export interface SOFRForwardPoint {
   years_to_expiry: number;
 }
 
+// TradingView Real-Time Data Types
+export interface TradingViewPrice {
+  symbol: string;
+  timeframe: string;
+  timestamp: string;
+  open: number;
+  high: number | null;
+  low: number | null;
+  close: number;
+  volume: number;
+}
+
+export interface TradingViewSubscription {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  description: string;
+  currency: string;
+  exchange: string;
+  type: string;
+  loaded: boolean;
+}
+
 // Treasury API calls
 export const getTreasuryRates = async (
   startDate?: string,
@@ -269,6 +292,84 @@ export const getSOFRForwardRates = async (
 // Stats API calls
 export const getDataSummary = async () => {
   const response = await api.get('/api/stats/summary');
+  return response.data;
+};
+
+// TradingView Real-Time Data API calls
+export const getTradingViewSubscriptions = async () => {
+  const response = await api.get('/api/tradingview/subscriptions');
+  return response.data;
+};
+
+export const getTradingViewPrice = async (subscriptionId: string) => {
+  const response = await api.get(`/api/tradingview/price/${subscriptionId}`);
+  return response.data;
+};
+
+export const getTradingViewLatestPrices = async () => {
+  const response = await api.get('/api/tradingview/latest-prices');
+  return response.data;
+};
+
+export const getTradingViewHistorical = async (
+  symbol: string,
+  timeframe: string = '5',
+  limit: number = 100
+) => {
+  const params = new URLSearchParams();
+  params.append('timeframe', timeframe);
+  params.append('limit', limit.toString());
+  
+  const response = await api.get(`/api/tradingview/historical/${symbol}?${params}`);
+  return response.data;
+};
+
+export const subscribeTradingViewSymbol = async (
+  symbol: string,
+  timeframe: string = '5',
+  indicators: string[] = []
+) => {
+  const response = await api.post('/api/tradingview/subscribe', {
+    symbol,
+    timeframe,
+    indicators,
+  });
+  return response.data;
+};
+
+export const getTradingViewYieldCurve = async (date?: string) => {
+  const params = date ? `?curve_date=${date}` : '';
+  const response = await api.get(`/api/tradingview/yield-curve${params}`);
+  return response.data;
+};
+
+export const getTradingViewYieldHistory = async (
+  maturity: string = '10Y',
+  startDate?: string,
+  endDate?: string,
+  limit: number = 365
+) => {
+  const params = new URLSearchParams();
+  params.append('maturity', maturity);
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  params.append('limit', limit.toString());
+  
+  const response = await api.get(`/api/tradingview/yield-history?${params}`);
+  return response.data;
+};
+
+export const getTradingViewYieldSurface = async (
+  startDate?: string,
+  endDate?: string,
+  days: number = 90
+) => {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  params.append('days', days.toString());
+  
+  const response = await api.get(`/api/tradingview/yield-surface?${params}`);
   return response.data;
 };
 

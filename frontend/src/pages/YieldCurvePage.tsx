@@ -1,26 +1,37 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
-import { Calendar } from 'lucide-react';
+import { Calendar, Radio, Database } from 'lucide-react';
 import { format } from 'date-fns';
 import ChartControls from '../components/ChartControls';
+import { getTradingViewYieldCurve } from '../services/api';
 
 const API_BASE_URL = 'http://localhost:8000';
+
+type DataSource = 'treasury' | 'tradingview';
 
 const YieldCurvePage = () => {
   const [yieldCurveData, setYieldCurveData] = useState<any>(null);
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(true);
   const [autoscale, setAutoscale] = useState(true);
+  const [dataSource, setDataSource] = useState<DataSource>('tradingview');
 
   useEffect(() => {
     const loadYieldCurve = async () => {
       setLoading(true);
       try {
-        const response = await axios.get(`${API_BASE_URL}/api/treasury/yield-curve`, {
-          params: { curve_date: selectedDate }
-        });
-        setYieldCurveData(response.data);
+        if (dataSource === 'tradingview') {
+          // Use TradingView live data
+          const response = await getTradingViewYieldCurve(selectedDate);
+          setYieldCurveData(response);
+        } else {
+          // Use Treasury data
+          const response = await axios.get(`${API_BASE_URL}/api/treasury/yield-curve`, {
+            params: { curve_date: selectedDate }
+          });
+          setYieldCurveData(response.data);
+        }
       } catch (error) {
         console.error('Failed to load yield curve:', error);
         setYieldCurveData({ data: [], count: 0 });
@@ -29,7 +40,7 @@ const YieldCurvePage = () => {
       }
     };
     loadYieldCurve();
-  }, [selectedDate]);
+  }, [selectedDate, dataSource]);
 
   const sortedData = yieldCurveData?.data ? 
     [...yieldCurveData.data].sort((a: any, b: any) => a.maturity_years - b.maturity_years) : [];
@@ -43,12 +54,12 @@ const YieldCurvePage = () => {
         </p>
       </div>
 
-      {/* Date Selector */}
+      {/* Data Source & Date Selector */}
       <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-800">Select Date</h2>
-            <p className="text-sm text-gray-600 mt-1">View historical yield curves</p>
+            <h2 className="text-xl font-semibold text-gray-800">Data Source</h2>
+            <p className="text-sm text-gray-600 mt-1">Choose between live TradingView or historical Treasury data</p>
           </div>
           <div className="flex items-center space-x-2">
             <Calendar className="w-5 h-5 text-gray-600" />
@@ -61,12 +72,49 @@ const YieldCurvePage = () => {
             />
           </div>
         </div>
+
+        {/* Data Source Toggle */}
+        <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+          <button
+            onClick={() => setDataSource('tradingview')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${
+              dataSource === 'tradingview'
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <Radio className={`w-5 h-5 ${dataSource === 'tradingview' ? 'animate-pulse' : ''}`} />
+            <span className="font-medium">TradingView Live</span>
+          </button>
+          <button
+            onClick={() => setDataSource('treasury')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${
+              dataSource === 'treasury'
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <Database className="w-5 h-5" />
+            <span className="font-medium">Treasury Historical</span>
+          </button>
+          {dataSource === 'tradingview' && (
+            <span className="flex items-center text-sm text-green-600">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+              Real-time data
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Chart */}
       <div className="bg-white p-6 rounded-lg shadow-md mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold">Yield Curve - {selectedDate}</h2>
+          <div>
+            <h2 className="text-2xl font-bold">Yield Curve - {selectedDate}</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Source: {dataSource === 'tradingview' ? 'TradingView (Live)' : 'US Treasury (Historical)'}
+            </p>
+          </div>
           <ChartControls 
             autoscale={autoscale} 
             onToggleAutoscale={() => setAutoscale(!autoscale)} 

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, TrendingUp, GitBranch, DollarSign, BarChart3, Table, Activity, LineChart } from 'lucide-react';
+import { Home, TrendingUp, GitBranch, DollarSign, BarChart3, Table, Activity, LineChart, Radio, Box } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,9 +10,11 @@ const Layout = ({ children }: LayoutProps) => {
   const navItems = [
     { path: '/', icon: Home, label: 'Overview' },
     { path: '/yield-curve', icon: TrendingUp, label: 'Yield Curve' },
+    { path: '/yield-surface-3d', icon: Box, label: '3D Yield Surface' },
     { path: '/spreads', icon: GitBranch, label: 'Spreads' },
     { path: '/fed-rates', icon: DollarSign, label: 'Fed Rates' },
     { path: '/futures', icon: BarChart3, label: 'Futures & COT' },
+    { path: '/live-futures', icon: Radio, label: 'Live Futures' },
     { path: '/forward-curve', icon: Activity, label: 'Forward Curves' },
     { path: '/sofr-forwards', icon: LineChart, label: 'SOFR Forwards' },
     { path: '/data-tables', icon: Table, label: 'Data Tables' },
@@ -51,7 +53,7 @@ const Layout = ({ children }: LayoutProps) => {
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-blue-700">
           <p className="text-xs text-blue-200">
-            Data from FRED, Treasury, CFTC
+            Data from FRED, Treasury, CFTC, TradingView
           </p>
         </div>
       </aside>

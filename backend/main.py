@@ -791,6 +791,317 @@ async def get_data_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# TradingView Real-Time Data Endpoints
+TRADINGVIEW_SERVICE_URL = "http://localhost:3002"
+
+@app.get("/api/tradingview/subscriptions")
+async def get_tradingview_subscriptions():
+    """Get list of active TradingView subscriptions"""
+    try:
+        import requests
+        response = requests.get(f"{TRADINGVIEW_SERVICE_URL}/subscriptions", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/price/{subscription_id}")
+async def get_tradingview_price(subscription_id: str):
+    """Get latest price for a TradingView subscription"""
+    try:
+        import requests
+        response = requests.get(f"{TRADINGVIEW_SERVICE_URL}/price/{subscription_id}", timeout=5)
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+        response.raise_for_status()
+        return response.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/historical/{symbol}")
+async def get_tradingview_historical(
+    symbol: str,
+    timeframe: str = "5",
+    limit: int = 100
+):
+    """Get historical intraday prices from TradingView"""
+    try:
+        import requests
+        response = requests.get(
+            f"{TRADINGVIEW_SERVICE_URL}/historical/{symbol}",
+            params={"timeframe": timeframe, "limit": limit},
+            timeout=10
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/tradingview/subscribe")
+async def subscribe_tradingview_symbol(
+    symbol: str,
+    timeframe: str = "5",
+    indicators: List[str] = []
+):
+    """Subscribe to a new TradingView symbol"""
+    try:
+        import requests
+        response = requests.post(
+            f"{TRADINGVIEW_SERVICE_URL}/subscribe",
+            json={"symbol": symbol, "timeframe": timeframe, "indicators": indicators},
+            timeout=10
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/latest-prices")
+async def get_all_latest_prices():
+    """Get latest prices for all subscribed symbols from database"""
+    try:
+        query = """
+            SELECT 
+                symbol,
+                timeframe,
+                timestamp,
+                open,
+                high,
+                low,
+                price as close,
+                volume
+            FROM v_tradingview_latest_prices
+            ORDER BY symbol
+        """
+        
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn)
+        
+        # Convert timestamp to string for JSON serialization
+        if 'timestamp' in df.columns:
+            df['timestamp'] = df['timestamp'].astype(str)
+        
+        # Replace NaN and inf values with None for JSON serialization
+        df = df.replace([float('inf'), float('-inf')], None)
+        df = df.where(pd.notna(df), None)
+        
+        return {
+            "data": df.to_dict('records'),
+            "count": len(df)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/yield-curve")
+async def get_tradingview_yield_curve(curve_date: Optional[date] = None):
+    """Get yield curve from TradingView live data"""
+    try:
+        import requests
+        
+        # Map TradingView symbols to maturities
+        yield_symbols = {
+            'TVC:US03MY_D': ('3M', 0.25),
+            'TVC:US06MY_D': ('6M', 0.5),
+            'TVC:US01Y_D': ('1Y', 1),
+            'TVC:US02Y_D': ('2Y', 2),
+            'TVC:US05Y_D': ('5Y', 5),
+            'TVC:US10Y_D': ('10Y', 10),
+            'TVC:US30Y_D': ('30Y', 30),
+        }
+        
+        yield_data = []
+        
+        for symbol, (maturity, years) in yield_symbols.items():
+            try:
+                response = requests.get(f"{TRADINGVIEW_SERVICE_URL}/price/{symbol}", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    yield_data.append({
+                        'maturity': maturity,
+                        'rate': data.get('close', 0),
+                        'maturity_years': years,
+                        'source': 'TRADINGVIEW',
+                        'timestamp': data.get('timestamp')
+                    })
+            except Exception as e:
+                print(f"Error fetching {symbol}: {e}")
+                continue
+        
+        # Sort by maturity years
+        yield_data.sort(key=lambda x: x['maturity_years'])
+        
+        return {
+            "date": date.today() if not curve_date else curve_date,
+            "data": yield_data,
+            "count": len(yield_data),
+            "source": "TradingView Live Data"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/yield-history")
+async def get_tradingview_yield_history(
+    maturity: str = "10Y",
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 365
+):
+    """Get historical yield data from TradingView database"""
+    try:
+        # Map maturity to TradingView symbol
+        symbol_map = {
+            '3M': 'TVC:US03MY',
+            '6M': 'TVC:US06MY',
+            '1Y': 'TVC:US01Y',
+            '2Y': 'TVC:US02Y',
+            '5Y': 'TVC:US05Y',
+            '10Y': 'TVC:US10Y',
+            '30Y': 'TVC:US30Y',
+        }
+        
+        symbol = symbol_map.get(maturity)
+        if not symbol:
+            raise HTTPException(status_code=400, detail=f"Invalid maturity: {maturity}")
+        
+        query = """
+            SELECT 
+                timestamp::date as date,
+                symbol,
+                price as rate,
+                open,
+                high,
+                low
+            FROM tradingview_prices
+            WHERE symbol = %(symbol)s
+              AND timeframe = 'D'
+        """
+        
+        params = {'symbol': symbol}
+        
+        if start_date:
+            query += " AND timestamp >= %(start_date)s"
+            params['start_date'] = start_date
+        if end_date:
+            query += " AND timestamp <= %(end_date)s"
+            params['end_date'] = end_date
+        
+        query += " ORDER BY timestamp DESC LIMIT %(limit)s"
+        params['limit'] = limit
+        
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn, params=params)
+        
+        return {
+            "maturity": maturity,
+            "symbol": symbol,
+            "data": df.to_dict('records'),
+            "count": len(df)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tradingview/yield-surface")
+async def get_tradingview_yield_surface(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    days: int = 90
+):
+    """Get yield curve surface data for 3D visualization"""
+    try:
+        # Default to last N days
+        if not end_date:
+            end_date = date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=days)
+        
+        query = """
+            WITH daily_curves AS (
+                SELECT 
+                    timestamp::date as date,
+                    symbol,
+                    price as rate,
+                    CASE symbol
+                        WHEN 'TVC:US03MY' THEN '3M'
+                        WHEN 'TVC:US06MY' THEN '6M'
+                        WHEN 'TVC:US01Y' THEN '1Y'
+                        WHEN 'TVC:US02Y' THEN '2Y'
+                        WHEN 'TVC:US05Y' THEN '5Y'
+                        WHEN 'TVC:US10Y' THEN '10Y'
+                        WHEN 'TVC:US30Y' THEN '30Y'
+                    END as maturity,
+                    CASE symbol
+                        WHEN 'TVC:US03MY' THEN 0.25
+                        WHEN 'TVC:US06MY' THEN 0.5
+                        WHEN 'TVC:US01Y' THEN 1
+                        WHEN 'TVC:US02Y' THEN 2
+                        WHEN 'TVC:US05Y' THEN 5
+                        WHEN 'TVC:US10Y' THEN 10
+                        WHEN 'TVC:US30Y' THEN 30
+                    END as maturity_years
+                FROM tradingview_prices
+                WHERE symbol IN ('TVC:US03MY', 'TVC:US06MY', 'TVC:US01Y', 'TVC:US02Y', 
+                                'TVC:US05Y', 'TVC:US10Y', 'TVC:US30Y')
+                  AND timeframe = 'D'
+                  AND timestamp >= %(start_date)s
+                  AND timestamp <= %(end_date)s
+            )
+            SELECT 
+                date,
+                maturity,
+                maturity_years,
+                rate
+            FROM daily_curves
+            WHERE rate IS NOT NULL
+            ORDER BY date, maturity_years
+        """
+        
+        params = {'start_date': start_date, 'end_date': end_date}
+        
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn, params=params)
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data found for the specified date range")
+        
+        # Get unique dates and maturities
+        dates = sorted(df['date'].unique().tolist())
+        maturities = sorted(df['maturity_years'].unique().tolist())
+        
+        # Create 2D array for surface plot (dates x maturities)
+        # Pivot the data
+        surface_data = df.pivot(index='date', columns='maturity_years', values='rate')
+        
+        # Replace NaN and inf values with None for JSON serialization
+        surface_data = surface_data.replace([float('inf'), float('-inf')], None)
+        surface_data = surface_data.where(pd.notna(surface_data), None)
+        z_values = surface_data.values.tolist()
+        
+        return {
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "dates": [str(d) for d in dates],
+            "maturities": maturities,
+            "maturity_labels": ['3M', '6M', '1Y', '2Y', '5Y', '10Y', '30Y'],
+            "z_values": z_values,
+            "count": len(dates)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
